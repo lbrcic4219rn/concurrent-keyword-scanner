@@ -1,52 +1,54 @@
 package rs.raf.job;
 
+import lombok.extern.slf4j.Slf4j;
+import lombok.Getter;
 import rs.raf.core.App;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.util.HashMap;
-import java.util.List;
+import java.io.Serial;
 import java.util.Map;
 import java.util.Scanner;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RecursiveTask;
+import java.util.regex.Pattern;
 
+@Slf4j
 public class FileJob extends RecursiveTask<Map<String, Integer>> implements Job {
-    private String path;
-    private Map<String, Integer> jobResult;
-    private int left;
-    private int right;
-    private String[] keywords;
+    @Serial
+    private static final long serialVersionUID = 1L;
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
+    @Getter
+    private final String path;
+    private final transient Map<String, Integer> jobResult;
+    private final String[] keywords;
+    private int left;
+    private final int right;
 
     public FileJob(String path, int left, int right) {
         this.path = path;
         this.jobResult = new ConcurrentHashMap<>();
         this.left = left;
         this.right = right;
-        String keyStr = App.properties.get(App.KEYWORDS);
-        this.keywords = keyStr.split(",");
-    }
-
-
-    public String getPath() {
-        return path;
+        this.keywords = App.getProperty(App.KEYWORDS).split(",");
     }
 
     @Override
-    protected Map<String, Integer>  compute() {
-        File file = new File(this.path);
-        File[] fileList = file.listFiles();
-
-        long corpSize = 0;
-        for(int i = left; i <= right; i++) {
-            corpSize += fileList[i].length();
+    protected Map<String, Integer> compute() {
+        File[] fileList = new File(this.path).listFiles();
+        if (fileList == null) {
+            return this.jobResult;
         }
 
-        if(corpSize <= Long.parseLong(App.properties.get(App.FILE_SCANNING_SIZE_LIMIT)) || left == right) {
-            this.countKeywords();
+        long corpusSize = 0;
+        for (int i = left; i <= right; i++) {
+            corpusSize += fileList[i].length();
         }
 
-        else {
+        if (corpusSize <= Long.parseLong(App.getProperty(App.FILE_SCANNING_SIZE_LIMIT)) || left == right) {
+            countKeywords(fileList);
+        } else {
             int mid = (right - left) / 2 + left;
 
             FileJob leftTask = new FileJob(this.path, left, mid);
@@ -56,44 +58,32 @@ public class FileJob extends RecursiveTask<Map<String, Integer>> implements Job 
 
             Map<String, Integer> rightResult = this.compute();
             Map<String, Integer> leftResult = leftTask.join();
-//            System.out.println("left: " + leftResult);
-//            System.out.println("Right: " + rightResult);
             leftResult.forEach((k, v) -> rightResult.merge(k, v, Integer::sum));
             this.jobResult.putAll(rightResult);
         }
         return this.jobResult;
     }
 
-    private void countKeywords() {
-        Scanner sc = null;
-        try {
-            for (int i = left; i <= right; i++){
-                File file = new File(this.path);
-                File[] files = file.listFiles();
-                sc = new Scanner(files[i]);
-
+    private void countKeywords(File[] files) {
+        for (int i = left; i <= right; i++) {
+            try (Scanner sc = new Scanner(files[i])) {
                 while (sc.hasNextLine()) {
-                    String line = sc.nextLine();
-                    String[] words = line.split("\\s+");
-                    for(String word : words) {
-                        for(String keyword : this.keywords) {
-                           if(word.equals(keyword)) {
-                               if(this.jobResult.get(word) == null) {
-                                   this.jobResult.put(word, 1);
-                               } else {
-                                   this.jobResult.put(word, this.jobResult.get(word) + 1);
-                               }
-                           }
-                        }
-                    }
+                    countKeywordsInLine(sc.nextLine());
+                }
+            } catch (FileNotFoundException e) {
+                log.error("File not found: {}", e.getMessage());
+            }
+        }
+    }
+
+    private void countKeywordsInLine(String line) {
+        for (String word : WHITESPACE.split(line)) {
+            for (String keyword : this.keywords) {
+                if (word.equals(keyword)) {
+                    this.jobResult.merge(word, 1, Integer::sum);
                 }
             }
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } finally {
-            sc.close();
         }
-
     }
 
     @Override

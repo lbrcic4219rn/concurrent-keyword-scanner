@@ -1,16 +1,11 @@
 package rs.raf.pools;
 
+import lombok.Getter;
+
 import java.util.concurrent.ForkJoinPool;
 
-public class FileThreadPool{
+@Getter
+public class FileThreadPool {
 
-    private ForkJoinPool forkJoinPool;
-
-    public FileThreadPool() {
-        this.forkJoinPool = new ForkJoinPool();
-    }
-
-    public ForkJoinPool getPool() {
-        return forkJoinPool;
-    }
+    private final ForkJoinPool pool = new ForkJoinPool();
 }

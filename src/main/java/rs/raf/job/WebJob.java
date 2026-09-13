@@ -1,82 +1,75 @@
 package rs.raf.job;
 
+import lombok.extern.slf4j.Slf4j;
+import lombok.Getter;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 import rs.raf.core.App;
 
-import java.util.HashMap;
-import java.util.List;
+import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 public class WebJob implements Callable<Map<String, Integer>>, Job {
-    private String path;
-    private int hopCount;
-    private JobQueue jobQueue;
-    private Map<String, Integer> webPageResult;
-    private String[] keywords;
+    @Getter
+    private final String path;
+    @Getter
+    private final int hopCount;
+    private final JobQueue jobQueue;
+    private final Map<String, Integer> webPageResult;
+    private final String[] keywords;
 
     public WebJob(String path, int hopCount, JobQueue jobQueue) {
         this.jobQueue = jobQueue;
         this.hopCount = hopCount;
         this.path = path;
         this.webPageResult = new ConcurrentHashMap<>();
-        String keyStr = App.properties.get(App.KEYWORDS);
-        this.keywords = keyStr.split(",");
+        this.keywords = App.getProperty(App.KEYWORDS).split(",");
     }
+
     @Override
-    public Map<String, Integer> call() throws Exception {
+    public Map<String, Integer> call() throws InterruptedException {
         try {
             Document document = Jsoup.connect(path).get();
-            Elements links = document.select("a[href]");
-            if(this.hopCount > 0) {
-                for (Element link : links) {
+            if (this.hopCount > 0) {
+                for (Element link : document.select("a[href]")) {
                     String url = link.attr("abs:href").trim();
-                    if (
-                            url.equals("") ||
-                                    url.contains("#") ||
-                                    url.contains("%") ||
-                                    !url.startsWith("http") || url.endsWith(".jpg") || url.endsWith(".png") || url.endsWith(".pdf") || url.contains(".php") ||
-                                    App.isWebPageVisited(url)
-                    ) continue;
-                    jobQueue.addJob(new WebJob(url, this.hopCount - 1, this.jobQueue));
-                }
-            }
-            String[] words = document.text().split("\\s+");
-            for(String word : words) {
-                for(String keyword : this.keywords) {
-                    if(word.equals(keyword)) {
-                        if(this.webPageResult.get(word) == null) {
-                            this.webPageResult.put(word, 1);
-                        } else {
-                            this.webPageResult.put(word, this.webPageResult.get(word) + 1);
-                        }
+                    if (!isSkippable(url) && !App.isWebPageVisited(url)) {
+                        jobQueue.addJob(new WebJob(url, this.hopCount - 1, this.jobQueue));
                     }
                 }
             }
-
-        } catch (Exception e) {
-            System.err.println("failed: reason: " + e.getMessage());
+            for (String word : document.text().split("\\s+")) {
+                for (String keyword : this.keywords) {
+                    if (word.equals(keyword)) {
+                        this.webPageResult.merge(word, 1, Integer::sum);
+                    }
+                }
+            }
+        } catch (IOException | IllegalArgumentException e) {
+            log.warn("Failed to scan {}: {}", path, e.getMessage());
             return new ConcurrentHashMap<>();
         }
 
-        System.out.println(this.path + " : " + webPageResult);
+        log.info("{} : {}", path, webPageResult);
         return webPageResult;
+    }
+
+    private static boolean isSkippable(String url) {
+        return url.contains("#")
+                || url.contains("%")
+                || !url.startsWith("http")
+                || url.endsWith(".jpg")
+                || url.endsWith(".png")
+                || url.endsWith(".pdf")
+                || url.contains(".php");
     }
 
     @Override
     public ScanType getType() {
         return ScanType.WEB;
-    }
-
-    public int getHopCount() {
-        return hopCount;
-    }
-
-    public String getPath() {
-        return path;
     }
 }

@@ -1,32 +1,35 @@
 package rs.raf.result;
 
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import rs.raf.job.FileJob;
 import rs.raf.job.Job;
 import rs.raf.job.ScanType;
 import rs.raf.job.WebJob;
 
-import java.io.File;
-import java.net.MalformedURLException;
-import java.net.URL;
+import java.net.URI;
 import java.util.Map;
-import java.util.concurrent.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
-public class ResultRetrieverImpl implements ResultRetriever{
-    private ExecutorService pool;
-    private Map<String, Future<Map<String, Integer>>> fileResults = new ConcurrentHashMap<>();
-    private Map<String, Future<Map<String, Integer>>> webResults = new ConcurrentHashMap<>();
+@Slf4j
+public class ResultRetrieverImpl implements ResultRetriever {
+    private static final String QUERY = "query";
+    private static final String KEY_VALUE_FORMAT = "{} : {}";
 
-    private Map<String, Map<String, Integer>> fileSummaryResults = new ConcurrentHashMap<>();
-    private Map<String, Map<String, Integer>> webSummaryResults = new ConcurrentHashMap<>();
-    private Map<String, Map<String, Integer>> domainWebResults = new ConcurrentHashMap<>();
+    @Getter
+    private final ExecutorService pool;
+    private final Map<String, Future<Map<String, Integer>>> fileResults = new ConcurrentHashMap<>();
+    private final Map<String, Future<Map<String, Integer>>> webResults = new ConcurrentHashMap<>();
+
+    private final Map<String, Map<String, Integer>> fileSummaryResults = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Integer>> webSummaryResults = new ConcurrentHashMap<>();
+
     public ResultRetrieverImpl(int n) {
         this.pool = Executors.newFixedThreadPool(n);
-    }
-
-    public ExecutorService getPool() {
-        return pool;
     }
 
     public Future<Map<String, Map<String, Integer>>> retrieveResult(String query, String command) {
@@ -36,176 +39,175 @@ public class ResultRetrieverImpl implements ResultRetriever{
     @Override
     public Map<String, Map<String, Integer>> singleResult(String query, String command) {
         String[] params = query.split("\\|");
-        if(params.length != 2){
-            System.out.println("Wrong query format: " + query);
-            return null;
+        if (params.length != 2) {
+            log.warn("Wrong query format: {}", query);
+            return Map.of();
         }
         String type = params[0];
         String path = params[1];
-        if(type.equals("file")) {
-            if(fileResults.containsKey(path)){
-                if(command.equals("query") && !fileResults.get(path).isDone()){
-                    System.out.println(path + " is still being scanned");
-                    return null;
+        if (type.equals("file")) {
+            return singleFileResult(path, command);
+        }
+        if (type.equals("web")) {
+            return singleWebResult(path, command);
+        }
+        return Map.of();
+    }
+
+    private Map<String, Map<String, Integer>> singleFileResult(String path, String command) {
+        Future<Map<String, Integer>> future = fileResults.get(path);
+        if (future == null) {
+            log.info("File {} is still being scanned", path);
+            return Map.of();
+        }
+        if (command.equals(QUERY) && !future.isDone()) {
+            log.info("{} is still being scanned", path);
+            return Map.of();
+        }
+        Map<String, Map<String, Integer>> result = new ConcurrentHashMap<>();
+        result.put(path, await(future));
+        if (command.equals(QUERY)) {
+            log.info("{}", result);
+        }
+        return result;
+    }
+
+    private Map<String, Map<String, Integer>> singleWebResult(String domain, String command) {
+        Map<String, Integer> domainSum = new ConcurrentHashMap<>();
+        boolean isDomainPresent = false;
+        for (Map.Entry<String, Future<Map<String, Integer>>> entry : webResults.entrySet()) {
+            String key = entry.getKey();
+            try {
+                if (!domain.equals(URI.create(key).getHost())) {
+                    continue;
                 }
-                try {
-                    Map<String, Integer> map = fileResults.get(path).get();
-                    Map<String, Map<String, Integer>> result = new ConcurrentHashMap<>();
-                    result.put(path, map);
-                    if(command.equals("query"))
-                        System.out.println(result);
-                    return result;
-                } catch (InterruptedException | ExecutionException e) {
-                    throw new RuntimeException(e);
+                isDomainPresent = true;
+                if (command.equals(QUERY) && !entry.getValue().isDone()) {
+                    log.info("Webpage {} is still being scanned", key);
+                    return Map.of();
                 }
-            } else {
-                System.out.println("File " + path + "is still being scanned");
-                return null;
+                entry.getValue().get().forEach((k, v) -> domainSum.merge(k, v, Integer::sum));
+            } catch (IllegalArgumentException | ExecutionException e) {
+                log.error(KEY_VALUE_FORMAT,key, e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Map.of();
             }
         }
-        if(type.equals("web")) {
-            Map<String, Map<String, Integer>> result = new ConcurrentHashMap<>();
-
-            if(domainWebResults.get(path) != null) {
-                result.put(path, domainWebResults.get(path));
-                if(command.equals(query))
-                    System.out.println(result);
-            }
-
-            Map<String, Integer> domainSum = new ConcurrentHashMap<>();
-            boolean isDomainPresent = false;
-            for(String key : webResults.keySet()) {
-                try {
-                    String domain = new URL(key).getHost();
-                    isDomainPresent = true;
-                    if(command.equals("query") && !webResults.get(key).isDone()){
-                        System.out.println("Webpage " + path + " is still being scanned");
-                        return null;
-                    }
-
-                    domainSum = Stream.concat(domainSum.entrySet().stream(), webResults.get(key).get().entrySet().stream())
-                            .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.summingInt(Map.Entry::getValue)));
-
-                } catch (MalformedURLException | ExecutionException | InterruptedException e) {
-//                } catch (MalformedURLException e) {
-                    System.err.println(key + " : " + e.getMessage());
-                }
-            }
-            if (!isDomainPresent) {
-                System.out.println("Domain is not present: " + path);
-                return null;
-            }
-
-            result.put(path, domainSum);
-
-            if (command.equals("query")) {
-                System.out.println(result);
-            }
-            return result;
+        if (!isDomainPresent) {
+            log.info("Domain is not present: {}", domain);
+            return Map.of();
         }
-        return null;
+
+        Map<String, Map<String, Integer>> result = new ConcurrentHashMap<>();
+        result.put(domain, domainSum);
+        if (command.equals(QUERY)) {
+            log.info("{}", result);
+        }
+        return result;
     }
 
     @Override
     public Map<String, Map<String, Integer>> summaryResult(String query, String command) {
         String[] params = query.split("\\|");
-        if(params.length != 2){
-            System.out.println("Wrong query format: " + query);
-            return null;
+        if (params.length != 2) {
+            log.warn("Wrong query format: {}", query);
+            return Map.of();
         }
         String type = params[0];
-        if(type.equals("file")) {
-            if(!fileSummaryResults.isEmpty()){
-                if(command.equals("query")){
-                    fileSummaryResults.forEach((k, v) -> System.out.println(k + " : " + v));
-                    return fileSummaryResults;
-                }
-            } else {
-                if(command.equals("query")) {
-                    for(String key : fileResults.keySet()) {
-                        if(!fileResults.get(key).isDone()) {
-                            System.out.println("File summary not ready");
-                            return null;
-                        }
-                    }
-                }
-                for(String key : fileResults.keySet()) {
-                    try {
-                        this.fileSummaryResults.put(key, fileResults.get(key).get());
-                    } catch (InterruptedException | ExecutionException e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-                if(command.equals("query"))
-                    fileSummaryResults.forEach((k, v) -> System.out.println(k + " : " + v));
-            }
-            return fileSummaryResults;
+        if (type.equals("file")) {
+            return fileSummary(command);
         }
-        if(type.equals("web")) {
-            if(!webSummaryResults.isEmpty()){
-                if(command.equals("query")){
-                    webSummaryResults.forEach((k, v) -> System.out.println(k + " : " + v));
-                }
-                return webSummaryResults;
-            }
+        if (type.equals("web")) {
+            return webSummary(command);
+        }
+        return Map.of();
+    }
 
-            for (String key : webResults.keySet()) {
-                if (command.equals("query")) {
-                    if (!webResults.get(key).isDone()) {
-                        System.out.println("Webpage " + key + " is still being scanned");
-                        return null;
-                    }
-                }
+    private Map<String, Map<String, Integer>> fileSummary(String command) {
+        if (fileSummaryResults.isEmpty()) {
+            if (command.equals(QUERY) && fileResults.values().stream().anyMatch(f -> !f.isDone())) {
+                log.info("File summary not ready");
+                return Map.of();
             }
+            fileResults.forEach((key, future) -> fileSummaryResults.put(key, await(future)));
+        }
+        if (command.equals(QUERY)) {
+            printSummary(fileSummaryResults);
+        }
+        return fileSummaryResults;
+    }
 
-            for (String key : webResults.keySet()) {
-                try {
-                    URL url;
-                    url = new URL(key);
-                    String domain = url.getHost();
-                    if (webSummaryResults.get(domain) == null) {
-                        webSummaryResults.put(domain, webResults.get(key).get());
-                    }
-                    else {
-                        Map<String, Integer> domainMap = webSummaryResults.get(domain);
-                        domainMap = Stream.concat(domainMap.entrySet().stream(), webResults.get(key).get().entrySet().stream())
-                                .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.summingInt(Map.Entry::getValue)));
-                        webSummaryResults.put(domain, domainMap);
-                    }
-                }
-                catch (MalformedURLException | InterruptedException | ExecutionException e) {
-                    System.err.println(key + " {" + e.getMessage() +"}");
-                }
+    private Map<String, Map<String, Integer>> webSummary(String command) {
+        if (!webSummaryResults.isEmpty()) {
+            if (command.equals(QUERY)) {
+                printSummary(webSummaryResults);
             }
-
-            if (command.equals("query")) {
-                webSummaryResults.forEach((k, v) -> System.out.println(k + " : " + v));
-            }
-
             return webSummaryResults;
         }
-        return null;
+
+        if (command.equals(QUERY)) {
+            for (Map.Entry<String, Future<Map<String, Integer>>> entry : webResults.entrySet()) {
+                if (!entry.getValue().isDone()) {
+                    log.info("Webpage {} is still being scanned", entry.getKey());
+                    return Map.of();
+                }
+            }
+        }
+
+        for (Map.Entry<String, Future<Map<String, Integer>>> entry : webResults.entrySet()) {
+            String key = entry.getKey();
+            try {
+                String domain = URI.create(key).getHost();
+                Map<String, Integer> domainMap = webSummaryResults.computeIfAbsent(domain, d -> new ConcurrentHashMap<>());
+                entry.getValue().get().forEach((k, v) -> domainMap.merge(k, v, Integer::sum));
+            } catch (IllegalArgumentException | ExecutionException e) {
+                log.error(KEY_VALUE_FORMAT,key, e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Map.of();
+            }
+        }
+
+        if (command.equals(QUERY)) {
+            printSummary(webSummaryResults);
+        }
+        return webSummaryResults;
+    }
+
+    private static void printSummary(Map<String, Map<String, Integer>> summary) {
+        summary.forEach((k, v) -> log.info(KEY_VALUE_FORMAT,k, v));
+    }
+
+    private static Map<String, Integer> await(Future<Map<String, Integer>> future) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Override
     public void addCorpusResult(Job submittedJob, Future<Map<String, Integer>> jobFutureResult) {
         switch (submittedJob.getType()) {
-            case FILE:
-                FileJob fileJob = (FileJob) submittedJob;
-                this.fileResults.put(fileJob.getPath(), jobFutureResult);
-                break;
-            case WEB:
-                WebJob webJob = (WebJob) submittedJob;
-                this.webResults.put(webJob.getPath(), jobFutureResult);
-                break;
+            case FILE -> fileResults.put(((FileJob) submittedJob).getPath(), jobFutureResult);
+            case WEB -> webResults.put(((WebJob) submittedJob).getPath(), jobFutureResult);
+            default -> {
+                // no result to store
+            }
         }
     }
 
     @Override
     public void clearSummary(ScanType summaryType) {
-        if(summaryType.equals(ScanType.FILE))
+        if (summaryType == ScanType.FILE) {
             this.fileSummaryResults.clear();
-        if (summaryType.equals(ScanType.WEB))
+        }
+        if (summaryType == ScanType.WEB) {
             this.webSummaryResults.clear();
+        }
     }
 }

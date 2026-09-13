@@ -7,6 +7,5 @@ public class Main {
         App app = new App();
         app.readConfig();
         app.handleCommands();
-        int t = Thread.activeCount();
     }
 }

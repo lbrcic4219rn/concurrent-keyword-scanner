@@ -1,43 +1,46 @@
 package rs.raf.result;
 
+import lombok.RequiredArgsConstructor;
 import rs.raf.job.ScanType;
 
 import java.util.Map;
 import java.util.concurrent.Callable;
 
+@RequiredArgsConstructor
 public class ResultJob implements Callable<Map<String, Map<String, Integer>>> {
 
-    private ResultRetriever resultRetriever;
-    private String query;
-    private String command;
-
-    public ResultJob(String query, ResultRetriever resultRetriever, String command) {
-        this.resultRetriever = resultRetriever;
-        this.query = query;
-        this.command = command;
-    }
+    private final String query;
+    private final ResultRetriever resultRetriever;
+    private final String command;
 
     @Override
-    public Map<String, Map<String, Integer>> call() throws Exception {
-        if(command.equals("cfs")) {
-            resultRetriever.clearSummary(ScanType.FILE);
-            return null;
+    public Map<String, Map<String, Integer>> call() {
+        switch (command) {
+            case "cfs" -> {
+                resultRetriever.clearSummary(ScanType.FILE);
+                return Map.of();
+            }
+            case "cws" -> {
+                resultRetriever.clearSummary(ScanType.WEB);
+                return Map.of();
+            }
+            case "get", "query" -> {
+                if (isSummary()) {
+                    return resultRetriever.summaryResult(query, command);
+                }
+                return resultRetriever.singleResult(query, command);
+            }
+            default -> {
+                return Map.of();
+            }
         }
-        if(command.equals("cws")) {
-            resultRetriever.clearSummary(ScanType.WEB);
-            return null;
-        }
-
-        if(command.equals("get") || command.equals("query")) {
-            if(isSummary())
-                return resultRetriever.summaryResult(query, command);
-            return resultRetriever.singleResult(query, command);
-        }
-        return null;
     }
 
     private boolean isSummary() {
-        return this.query.split("\\|")[1].contains("summary") &&
-                (this.query.split("\\|")[0].equals("web") || this.query.split("\\|")[0].equals("file"));
+        String[] params = this.query.split("\\|");
+        if (params.length != 2) {
+            return false;
+        }
+        return params[1].contains("summary") && (params[0].equals("web") || params[0].equals("file"));
     }
 }

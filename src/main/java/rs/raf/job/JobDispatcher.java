@@ -1,5 +1,6 @@
 package rs.raf.job;
 
+import lombok.extern.slf4j.Slf4j;
 import rs.raf.pools.FileThreadPool;
 import rs.raf.pools.WebThreadPool;
 import rs.raf.result.ResultRetrieverImpl;
@@ -7,13 +8,14 @@ import rs.raf.result.ResultRetrieverImpl;
 import java.util.Map;
 import java.util.concurrent.Future;
 
+@Slf4j
 public class JobDispatcher extends Thread {
 
-    private JobQueue jobQueue;
-    private FileThreadPool fileThreadPool;
-    private WebThreadPool webThreadPool;
-    private ResultRetrieverImpl resultRetriever;
-    private boolean working = true;
+    private final JobQueue jobQueue;
+    private final FileThreadPool fileThreadPool;
+    private final WebThreadPool webThreadPool;
+    private final ResultRetrieverImpl resultRetriever;
+    private volatile boolean working = true;
 
     public JobDispatcher(JobQueue jobQueue, ResultRetrieverImpl resultRetriever) {
         this.jobQueue = jobQueue;
@@ -30,36 +32,33 @@ public class JobDispatcher extends Thread {
     public void terminate() {
         fileThreadPool.getPool().shutdownNow();
         webThreadPool.getPool().shutdownNow();
-        System.out.println("stopping dispatcher...");
+        log.info("stopping dispatcher...");
         working = false;
     }
 
     private void dispatchJobs() {
-        while(working) {
-            try {
+        try {
+            while (working) {
                 Job job = this.jobQueue.takeJob();
                 switch (job.getType()) {
-                    case FILE:
+                    case FILE -> {
                         FileJob fileJob = (FileJob) job;
-                        System.out.println("Starting file job: " + fileJob.getPath());
+                        log.info("Starting file job: {}", fileJob.getPath());
                         Future<Map<String, Integer>> fileResult = fileThreadPool.getPool().submit(fileJob);
                         resultRetriever.addCorpusResult(fileJob, fileResult);
-                        break;
-                    case WEB:
+                    }
+                    case WEB -> {
                         WebJob webJob = (WebJob) job;
-                        System.out.println("Starting web job: " + webJob.getPath());
+                        log.info("Starting web job: {}", webJob.getPath());
                         Future<Map<String, Integer>> webResult = webThreadPool.getPool().submit(webJob);
                         resultRetriever.addCorpusResult(webJob, webResult);
-                        break;
-                    case STOP:
-                        terminate();
-                        break;
+                    }
+                    case STOP -> terminate();
                 }
-
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
-        System.out.println("Job dispatcher stopped");
+        log.info("Job dispatcher stopped");
     }
 }

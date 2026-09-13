@@ -1,6 +1,6 @@
 package rs.raf.job;
 
-public class StopJob implements Job{
+public class StopJob implements Job {
 
     @Override
     public ScanType getType() {

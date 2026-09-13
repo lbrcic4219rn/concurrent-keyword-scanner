@@ -1,17 +1,15 @@
 package rs.raf.core;
 
-import rs.raf.job.JobDispatcher;
-import rs.raf.job.JobQueue;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.util.HashMap;
-import java.util.List;
+import java.io.UncheckedIOException;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 
+@Slf4j
 public class App {
     public static final String KEYWORDS = "KEYWORDS";
     public static final String FILE_CORPUS_PREFIX = "FILE_CORPUS_PREFIX";
@@ -19,88 +17,69 @@ public class App {
     public static final String FILE_SCANNING_SIZE_LIMIT = "FILE_SCANNING_SIZE_LIMIT";
     public static final String HOP_COUNT = "HOP_COUNT";
     public static final String URL_REFRESH_TIME = "URL_REFRESH_TIME";
-    public static Map<String, String> properties = new HashMap<>();
-    public static Map<String, Long> visitedPages = new ConcurrentHashMap<>();
 
-    public App() {
+    private static final String CONFIG_PATH = "./src/main/resources/app.properties";
+    private static final Map<String, String> properties = new ConcurrentHashMap<>();
+    private static final Map<String, Long> visitedPages = new ConcurrentHashMap<>();
 
+    public static String getProperty(String key) {
+        return properties.get(key);
     }
 
     public void readConfig() {
-        Scanner s = null;
-        try {
-            s = new Scanner(new File("./src/main/resources/app.properties"));
-
-            while(s.hasNextLine()) {
+        try (Scanner s = new Scanner(new File(CONFIG_PATH))) {
+            while (s.hasNextLine()) {
                 String line = s.nextLine().trim();
-
-                if(line.startsWith("#") || line.equals(""))
+                if (line.startsWith("#") || line.isEmpty()) {
                     continue;
-
-                String[] keyValue = line.split("=");
-                String key = keyValue[0].trim().toUpperCase();
-                String value = keyValue[1].trim();
-                properties.put(key, value);
+                }
+                String[] keyValue = line.split("=", 2);
+                if (keyValue.length == 2) {
+                    properties.put(keyValue[0].trim().toUpperCase(), keyValue[1].trim());
+                }
             }
         } catch (FileNotFoundException e) {
-            throw new RuntimeException(e);
-        } finally {
-            if(s != null) s.close();
+            throw new UncheckedIOException(e);
         }
     }
 
-    public void handleCommands () {
+    public void handleCommands() {
         CommandHandler commandHandler = new CommandHandler();
         commandHandler.start();
 
-        Scanner s = new Scanner(System.in);
-        while(true) {
-            System.out.print("Enter a command: ");
-            String line = s.nextLine().trim();
-            String[] commandParam = line.split(" ");
-            String command = commandParam[0];
-            String param = "";
-            if(commandParam.length == 2)
-                param = commandParam[1];
+        try (Scanner s = new Scanner(System.in)) {
+            while (true) {
+                System.out.print("Enter a command: "); // NOSONAR interactive prompt, must stay on the same line as input
+                String[] commandParam = s.nextLine().trim().split(" ");
+                String command = commandParam[0];
+                String param = commandParam.length == 2 ? commandParam[1] : "";
+                int paramCount = commandParam.length - 1;
 
-            int paramCount = commandParam.length - 1;
-
-            switch(command) {
-                case "ad":
-                    commandHandler.addDir(param, paramCount);
-                    break;
-                case "aw":
-                    commandHandler.addWeb(param, paramCount);
-                    break;
-                case "get":
-                    commandHandler.getResult(param, paramCount);
-                    break;
-                case "query":
-                    commandHandler.queryResult(param, paramCount);
-                    break;
-                case "cws":
-                    commandHandler.clearWebSummary(paramCount);
-                    break;
-                case "cfs":
-                    commandHandler.clearFileSummary(paramCount);
-                    break;
-                case "stop":
-                    commandHandler.stop();
-                    s.close();
-                    return;
-                default:
-                    System.out.println("Invalid command");
-
+                switch (command) {
+                    case "ad" -> commandHandler.addDir(param, paramCount);
+                    case "aw" -> commandHandler.addWeb(param, paramCount);
+                    case "get" -> commandHandler.getResult(param, paramCount);
+                    case "query" -> commandHandler.queryResult(param, paramCount);
+                    case "cws" -> commandHandler.clearWebSummary(paramCount);
+                    case "cfs" -> commandHandler.clearFileSummary(paramCount);
+                    case "stop" -> {
+                        commandHandler.stop();
+                        return;
+                    }
+                    default -> log.warn("Invalid command");
+                }
             }
         }
     }
 
     public static synchronized boolean isWebPageVisited(String url) {
-        if (visitedPages.get(url) != null && System.currentTimeMillis() - visitedPages.get(url) < Long.parseLong(properties.get(URL_REFRESH_TIME))) {
-            System.out.println("Already visited: " + url);
+        Long lastVisit = visitedPages.get(url);
+        long now = System.currentTimeMillis();
+        if (lastVisit != null && now - lastVisit < Long.parseLong(properties.get(URL_REFRESH_TIME))) {
+            log.info("Already visited: {}", url);
             return true;
         }
-        visitedPages.put(url, System.currentTimeMillis());
+        visitedPages.put(url, now);
         return false;
     }
 }

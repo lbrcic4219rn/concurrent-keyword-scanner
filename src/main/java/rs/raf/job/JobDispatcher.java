@@ -30,8 +30,8 @@ public class JobDispatcher extends Thread {
     }
 
     public void terminate() {
-        fileThreadPool.getPool().shutdownNow();
-        webThreadPool.getPool().shutdownNow();
+        fileThreadPool.shutdownNow();
+        webThreadPool.shutdownNow();
         log.info("stopping dispatcher...");
         working = false;
     }
@@ -44,13 +44,13 @@ public class JobDispatcher extends Thread {
                     case FILE -> {
                         FileJob fileJob = (FileJob) job;
                         log.info("Starting file job: {}", fileJob.getPath());
-                        Future<Map<String, Integer>> fileResult = fileThreadPool.getPool().submit(fileJob);
+                        Future<Map<String, Integer>> fileResult = fileThreadPool.submit(fileJob);
                         resultRetriever.addCorpusResult(fileJob, fileResult);
                     }
                     case WEB -> {
                         WebJob webJob = (WebJob) job;
                         log.info("Starting web job: {}", webJob.getPath());
-                        Future<Map<String, Integer>> webResult = webThreadPool.getPool().submit(webJob);
+                        Future<Map<String, Integer>> webResult = webThreadPool.submit(webJob);
                         resultRetriever.addCorpusResult(webJob, webResult);
                     }
                     case STOP -> terminate();

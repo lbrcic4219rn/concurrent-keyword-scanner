@@ -1,6 +1,5 @@
 package rs.raf.result;
 
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import rs.raf.job.FileJob;
 import rs.raf.job.Job;
@@ -20,7 +19,6 @@ public class ResultRetrieverImpl implements ResultRetriever {
     private static final String QUERY = "query";
     private static final String KEY_VALUE_FORMAT = "{} : {}";
 
-    @Getter
     private final ExecutorService pool;
     private final Map<String, Future<Map<String, Integer>>> fileResults = new ConcurrentHashMap<>();
     private final Map<String, Future<Map<String, Integer>>> webResults = new ConcurrentHashMap<>();
@@ -33,7 +31,11 @@ public class ResultRetrieverImpl implements ResultRetriever {
     }
 
     public Future<Map<String, Map<String, Integer>>> retrieveResult(String query, String command) {
-        return getPool().submit(new ResultJob(query, this, command));
+        return pool.submit(new ResultJob(query, this, command));
+    }
+
+    public void shutdownNow() {
+        pool.shutdownNow();
     }
 
     @Override
@@ -88,7 +90,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
                 }
                 entry.getValue().get().forEach((k, v) -> domainSum.merge(k, v, Integer::sum));
             } catch (IllegalArgumentException | ExecutionException e) {
-                log.error(KEY_VALUE_FORMAT,key, e.getMessage());
+                log.error(KEY_VALUE_FORMAT, key, e.getMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return Map.of();
@@ -162,7 +164,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
                 Map<String, Integer> domainMap = webSummaryResults.computeIfAbsent(domain, d -> new ConcurrentHashMap<>());
                 entry.getValue().get().forEach((k, v) -> domainMap.merge(k, v, Integer::sum));
             } catch (IllegalArgumentException | ExecutionException e) {
-                log.error(KEY_VALUE_FORMAT,key, e.getMessage());
+                log.error(KEY_VALUE_FORMAT, key, e.getMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return Map.of();
@@ -176,7 +178,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
     }
 
     private static void printSummary(Map<String, Map<String, Integer>> summary) {
-        summary.forEach((k, v) -> log.info(KEY_VALUE_FORMAT,k, v));
+        summary.forEach((k, v) -> log.info(KEY_VALUE_FORMAT, k, v));
     }
 
     private static Map<String, Integer> await(Future<Map<String, Integer>> future) {

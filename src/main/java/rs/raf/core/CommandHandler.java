@@ -74,7 +74,7 @@ public class CommandHandler {
 
     public void stop() {
         log.info("stopping...");
-        this.resultRetriever.getPool().shutdownNow();
+        this.resultRetriever.shutdownNow();
         this.directoryCrawler.stop();
         try {
             jobQueue.addJob(new StopJob());

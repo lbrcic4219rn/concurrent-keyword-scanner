@@ -11,12 +11,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 public class App {
-    public static final String KEYWORDS = "KEYWORDS";
-    public static final String FILE_CORPUS_PREFIX = "FILE_CORPUS_PREFIX";
-    public static final String DIR_CRAWLER_SLEEP_TIME = "DIR_CRAWLER_SLEEP_TIME";
-    public static final String FILE_SCANNING_SIZE_LIMIT = "FILE_SCANNING_SIZE_LIMIT";
-    public static final String HOP_COUNT = "HOP_COUNT";
-    public static final String URL_REFRESH_TIME = "URL_REFRESH_TIME";
+    public static final String KEYWORDS = "keywords";
+    public static final String FILE_CORPUS_PREFIX = "file_corpus_prefix";
+    public static final String DIR_CRAWLER_SLEEP_TIME = "dir_crawler_sleep_time";
+    public static final String FILE_SCANNING_SIZE_LIMIT = "file_scanning_size_limit";
+    public static final String HOP_COUNT = "hop_count";
+    public static final String URL_REFRESH_TIME = "url_refresh_time";
 
     private static final String CONFIG_PATH = "./src/main/resources/app.properties";
     private static final Map<String, String> properties = new ConcurrentHashMap<>();
@@ -35,7 +35,7 @@ public class App {
                 }
                 String[] keyValue = line.split("=", 2);
                 if (keyValue.length == 2) {
-                    properties.put(keyValue[0].trim().toUpperCase(), keyValue[1].trim());
+                    properties.put(keyValue[0].trim().toLowerCase(), keyValue[1].trim());
                 }
             }
         } catch (FileNotFoundException e) {

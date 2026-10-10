@@ -18,6 +18,8 @@ import java.util.concurrent.Future;
 public class ResultRetrieverImpl implements ResultRetriever {
     private static final String QUERY = "query";
     private static final String KEY_VALUE_FORMAT = "{} : {}";
+    private static final String WRONG_QUERY_FORMAT = "Wrong query format: {}";
+    private static final String SCANNING_IN_PROGRESS = "Webpage {} is still being scanned";
 
     private final ExecutorService pool;
     private final Map<String, Future<Map<String, Integer>>> fileResults = new ConcurrentHashMap<>();
@@ -42,7 +44,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
     public Map<String, Map<String, Integer>> singleResult(String query, String command) {
         String[] params = query.split("\\|");
         if (params.length != 2) {
-            log.warn("Wrong query format: {}", query);
+            log.warn(WRONG_QUERY_FORMAT, query);
             return Map.of();
         }
         String type = params[0];
@@ -69,7 +71,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
         Map<String, Map<String, Integer>> result = new ConcurrentHashMap<>();
         result.put(path, await(future));
         if (command.equals(QUERY)) {
-            log.info("{}", result);
+            logResult(result);
         }
         return result;
     }
@@ -85,7 +87,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
                 }
                 isDomainPresent = true;
                 if (command.equals(QUERY) && !entry.getValue().isDone()) {
-                    log.info("Webpage {} is still being scanned", key);
+                    log.info(SCANNING_IN_PROGRESS, key);
                     return Map.of();
                 }
                 entry.getValue().get().forEach((k, v) -> domainSum.merge(k, v, Integer::sum));
@@ -104,7 +106,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
         Map<String, Map<String, Integer>> result = new ConcurrentHashMap<>();
         result.put(domain, domainSum);
         if (command.equals(QUERY)) {
-            log.info("{}", result);
+            logResult(result);
         }
         return result;
     }
@@ -113,7 +115,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
     public Map<String, Map<String, Integer>> summaryResult(String query, String command) {
         String[] params = query.split("\\|");
         if (params.length != 2) {
-            log.warn("Wrong query format: {}", query);
+            log.warn(WRONG_QUERY_FORMAT, query);
             return Map.of();
         }
         String type = params[0];
@@ -151,7 +153,7 @@ public class ResultRetrieverImpl implements ResultRetriever {
         if (command.equals(QUERY)) {
             for (Map.Entry<String, Future<Map<String, Integer>>> entry : webResults.entrySet()) {
                 if (!entry.getValue().isDone()) {
-                    log.info("Webpage {} is still being scanned", entry.getKey());
+                    log.info(SCANNING_IN_PROGRESS, entry.getKey());
                     return Map.of();
                 }
             }
@@ -175,6 +177,10 @@ public class ResultRetrieverImpl implements ResultRetriever {
             printSummary(webSummaryResults);
         }
         return webSummaryResults;
+    }
+
+    private static void logResult(Map<String, Map<String, Integer>> result) {
+        log.info("{}", result);
     }
 
     private static void printSummary(Map<String, Map<String, Integer>> summary) {

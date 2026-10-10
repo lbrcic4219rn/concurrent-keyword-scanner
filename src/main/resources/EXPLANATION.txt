@@ -1,0 +1,38 @@
+If we put the "example" directory into the project folder, run the program and enter the commands:
+ad example/data
+ad example/data2
+
+In that case the following should be analyzed:
+-corpus_riker (located directly in data)
+-corpus_sagan (located directly in data)
+-corpus_mcfly (located in the subdirectory subdir in data2)
+
+The program output could look like this:
+ad example/data
+Adding dir /home/pengu/Apps/eclipse-se/workspace/KiDSDomaci1/example/data
+Starting file scan for file|corpus_riker
+Starting file scan for file|corpus_sagan
+ad example/data2
+Adding dir /home/pengu/Apps/eclipse-se/workspace/KiDSDomaci1/example/data2
+Starting file scan for file|corpus_mcfly
+get file|corpus_riker
+{one=3, two=1, three=1}
+
+Also, the following should not be analyzed:
+trump_corpus (does not start with "corpus_")
+corporate.txt (is not part of a corpus)
+corpus_troll (located in data3, for which we did not issue a crawl command)
+
+Here we assume that the configuration states "corpus_" as the prefix for corpora.
+
+All directories that represent corpora have the following properties:
+-They have no subdirectories.
+-They contain only text files that are part of the corpus.
+
+The text in the files was generated using the following "Lorem ipsum" generators:
+http://saganipsum.com/
+http://www.rikeripsum.com/
+https://deloreanipsum.com/
+https://www.cipsum.com/
+http://trollemipsum.appspot.com/
+https://trumpipsum.net/
